@@ -1,0 +1,157 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Ilya Krasnikov"
+date: '15 Jun 2017'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+#### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+#### Data
+
+The training data for this project are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+The data for this project come from this source: <http://groupware.les.inf.puc-rio.br/har>. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+#### What you should submit
+
+The goal of your project is to predict the manner in which they did the exercise. This is the “classe” variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+*Peer Review Portion*
+Your submission should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-).
+
+*Course Project Prediction Quiz Portion*
+Apply your machine learning algorithm to the 20 test cases available in the test data above and submit your predictions in appropriate format to the Course Project Prediction Quiz for automated grading.
+
+# 1. Loading data
+
+Loading data into two datasets **train** and **test**:
+
+```{r}
+library(data.table)
+
+rm(list=ls(all=TRUE))   ## clear worksace
+gc()                    ## garbage collector
+
+# Load CSV files
+train <- read.csv("pml-training.csv", sep=",", na.strings = c("NA","#DIV/0!", ""))
+test <- read.csv("pml-testing.csv", sep=",", na.strings = c("NA","#DIV/0!", ""))
+
+dim(train)
+```
+
+The training data has 19622 observations and 160 features
+
+# 2. Preprocessing
+
+The data needs some preprocessing. Detailed analyses shows that some features has missing values at every observation. Remove that features and reduce the dataset dimension:
+
+```{r}
+# Delete columns with all missing values
+train <- train[,colSums(is.na(train)) == 0]
+test <- test[,colSums(is.na(test)) == 0]
+```
+
+Some variables are irrelevant to our current project: 
+*user_name*, *raw_timestamp_part_1*, *raw_timestamp_part_*, *cvtd_timestamp*, *new_window*, and  *num_window* (columns 1 to 7). Remove these variables:
+
+```{r}
+train <- train[,-c(1:7)]
+test <- test[,-c(1:7)]
+
+dim(train)
+dim(test)
+```
+
+Now the **train** and **test** datasets have only 53 significant features.
+
+# 3. Model training and results
+
+## 3.1 Partitioning the training data set to allow cross-validation
+
+In order to perform cross-validation, the original training dataset splits into 2 new datasets: **dtrain** (60%) and **dtest** (40%).
+Use random subsampling without replacement from *caret* library. The function *set.seed()* allows generate same random values for each run and code reproducibility.
+
+```{r}
+library(caret)
+
+set.seed(42)
+
+subsamples <- createDataPartition(y=train$classe, p=0.6, list=FALSE)
+dtrain <- train[subsamples, ] 
+dtest <- train[-subsamples, ]
+
+dim(dtrain)
+dim(dtest)
+```
+
+The variable “classe” contains 5 levels: A, B, C, D and E. Let's see the frequency of each levels in the training data set.
+
+```{r}
+plot(dtrain$classe, col="blue", main="Training data set", xlab="classe levels", ylab="Frequency")
+```
+
+#### Prediction model Decision Tree
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+modelDT <- rpart(classe ~ ., data=dtrain, method="class")
+
+predictionDT <- predict(modelDT, dtest, type = "class")
+
+# Plot of the tree
+rpart.plot(modelDT, main="Decision Tree", extra=102, under=TRUE, faclen=0)
+
+# Test results
+confusionMatrix(predictionDT, dtest$classe)
+```
+
+#### Prediction model Random Forest
+```{r}
+library(randomForest)
+
+modelRF <- randomForest(classe ~. , data=dtrain, method="class")
+
+predictionRF <- predict(modelRF, dtest, type = "class")
+
+# Test results
+confusionMatrix(predictionRF, dtest$classe)
+```
+
+## 3.2 Cross-validation results
+
+The Decision Tree model has an accuracy 0.7498 and 95% CI: (0.7401, 0.7594), while the Random Forest has more accuracy 0.9936 and 95% CI: (0.9916, 0.9953).  The cross validation accuracy is 99.5% and the out-of-sample error is therefore 0.5% correspondely. As expected, the Random Forest model has better esults and should be choosen for prediction.
+
+## 3.3 Prediction for Test dataset
+
+```{r}
+predictionTest <- predict(modelRF, test)
+predictionTest
+```
+
+Write files for submission
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predictionTest)
+```
+
